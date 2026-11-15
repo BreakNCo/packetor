@@ -7,6 +7,7 @@
 # What it does:
 #   1. skills     keep the packetor-skills clone on the volume up to date (fast-forward only)
 #   2. config     apply OpenClaw settings: skills load path, #leads-capture mention rule
+#   2c. telegram  route the leads-capture topic of the Packets Agency Telegram group to the lead flow (telegram.json)
 #   2b. mcporter  add missing MCP servers (Firecrawl) to the Discord agent's mcporter.json
 #   3. agents     keep a managed routing block in the Discord agent's AGENTS.md
 #                 (text from <skills>/<name>/agents-block.md, else agents-blocks/<name>.md)
@@ -114,12 +115,42 @@ apply_config() {
   # Voice notes: transcribe with OpenAI gpt-4o-transcribe (already authorised through the OAuth login) and give it a spelling
   # hint, because company names are unusual brand spellings. The company itself still comes from what a person types.
   set_json tools.media.audio '{"enabled":true,"prompt":"A short voice note from a trade show about a company that was met, the person and their role. Company names are often unusual startup brand spellings, for example Navodyx, Appsmith, Retool, PayGlocal, Arsvitae, Mirrorfolio, Modner, TuckNow, Zoho, Bigin."}'
+  # gpt-4o-transcribe (the old default) often stops after the first sentence on Malayalam voice notes (checked 15 Nov 2026: the same
+  # 30 s audio gave 50 or 400 characters from run to run). gpt-4o-mini-transcribe was better but still truncated once in 4 runs and its
+  # text changed a lot between runs. gpt-transcribe (OpenAI's file transcription model since July 2026) gave complete, repeatable text
+  # on every one of 24 test runs, so use it for audio.
+  set_json tools.media.models '[{"provider":"openai","model":"gpt-transcribe","capabilities":["audio"]}]'
   if [ -f "$HERE/discord.json" ]; then
     local gid chans
     gid="$(jq -r .guildId "$HERE/discord.json")"
     chans="$(jq -c .channels "$HERE/discord.json")"
     set_json "channels.discord.guilds.$gid.channels" "$chans"
   fi
+}
+
+# ---------------------------------------------------------------- 2c. Telegram leads-capture topic
+# The Huddle lead flow also runs in ONE forum topic of the Packets Agency Telegram group (telegram.json). Only that topic is configured:
+# its own routing block (<skills>/leads-capture/agents-block-telegram.md, the wording ships with a skills update) goes in as the topic's
+# systemPrompt. The group entry repeats requireMention=false because an exact group entry does not inherit the "*" entry. The General
+# topic and every other topic are not named here, so they keep routing to the main agent as before.
+apply_telegram_topic() {
+  local cfg="$HERE/telegram.json" blk="$SKILLS_DIR/leads-capture/agents-block-telegram.md"
+  [ -f "$cfg" ] || return 0
+  command -v openclaw >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || { log "telegram: openclaw or jq missing, skipped"; return; }
+  [ -f "$STATE_DIR/openclaw.json" ] || { log "telegram: not onboarded yet, skipped"; return; }
+  [ -f "$blk" ] || { log "telegram: $blk missing, skipped"; return; }
+  local chat agent topic text topics_json="{}"
+  chat="$(jq -r .chatId "$cfg")"; agent="$(jq -r .agentId "$cfg")"
+  [ -n "$chat" ] && [ -n "$agent" ] && [ "$(jq '.topics | length' "$cfg" 2>/dev/null || echo 0)" -gt 0 ] || { log "telegram: telegram.json incomplete, skipped"; return; }
+  text="$(sed "s#__SKILLS_DIR__#$SKILLS_DIR#g" "$blk")"
+  for topic in $(jq -r '.topics[]' "$cfg"); do
+    topics_json="$(jq -cn --argjson cur "$topics_json" --arg t "$topic" --arg a "$agent" --arg p "${text//__TOPIC_ID__/$topic}" \
+      '$cur + {($t): {agentId: $a, requireMention: false, systemPrompt: $p}}')"
+  done
+  set_json "channels.telegram.groups.$chat" "$(jq -cn --argjson t "$topics_json" '{requireMention: false, topics: $t}')"
+  # No "Working / Bash" status messages and no big link-preview cards under every card (applies to the whole Telegram channel).
+  set_json channels.telegram.streaming '{"mode":"partial","preview":{"toolProgress":false}}'
+  set_json channels.telegram.linkPreview false
 }
 
 # ---------------------------------------------------------------- 2b. mcporter servers
@@ -198,6 +229,7 @@ PY
 log "start (skills=$SKILLS_DIR@$SKILLS_REF)"
 sync_skills
 apply_config
+apply_telegram_topic
 apply_mcporter
 apply_agents_blocks
 log "done"
