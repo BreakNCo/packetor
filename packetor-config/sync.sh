@@ -115,9 +115,11 @@ apply_config() {
   # Voice notes: transcribe with OpenAI gpt-4o-transcribe (already authorised through the OAuth login) and give it a spelling
   # hint, because company names are unusual brand spellings. The company itself still comes from what a person types.
   set_json tools.media.audio '{"enabled":true,"prompt":"A short voice note from a trade show about a company that was met, the person and their role. Company names are often unusual startup brand spellings, for example Navodyx, Appsmith, Retool, PayGlocal, Arsvitae, Mirrorfolio, Modner, TuckNow, Zoho, Bigin."}'
-  # gpt-4o-transcribe (the default) often stops after the first sentence on Malayalam voice notes (checked 15 Nov 2026, same audio gave
-  # 50 or 400 characters from run to run). gpt-4o-mini-transcribe returned the full text every time, so use it for audio.
-  set_json tools.media.models '[{"provider":"openai","model":"gpt-4o-mini-transcribe","capabilities":["audio"]}]'
+  # gpt-4o-transcribe (the old default) often stops after the first sentence on Malayalam voice notes (checked 15 Nov 2026: the same
+  # 30 s audio gave 50 or 400 characters from run to run). gpt-4o-mini-transcribe was better but still truncated once in 4 runs and its
+  # text changed a lot between runs. gpt-transcribe (OpenAI's file transcription model since July 2026) gave complete, repeatable text
+  # on every one of 24 test runs, so use it for audio.
+  set_json tools.media.models '[{"provider":"openai","model":"gpt-transcribe","capabilities":["audio"]}]'
   if [ -f "$HERE/discord.json" ]; then
     local gid chans
     gid="$(jq -r .guildId "$HERE/discord.json")"
