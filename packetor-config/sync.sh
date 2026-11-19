@@ -120,6 +120,9 @@ apply_config() {
   # text changed a lot between runs. gpt-transcribe (OpenAI's file transcription model since July 2026) gave complete, repeatable text
   # on every one of 24 test runs, so use it for audio.
   set_json tools.media.models '[{"provider":"openai","model":"gpt-transcribe","capabilities":["audio"]}]'
+  # Inbound attachments (photos, voice notes, call recordings from Discord and Telegram) were never deleted: 790 files / 765 MB filled the
+  # 4.6 GB /data volume to 100% on 18-19 Nov 2026 (note files and session writes failed). Expire them after 7 days (168 is the allowed maximum).
+  set_json attachments.ttlHours 168
   if [ -f "$HERE/discord.json" ]; then
     local gid chans
     gid="$(jq -r .guildId "$HERE/discord.json")"
