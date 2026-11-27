@@ -8,6 +8,7 @@ import express from "express";
 import httpProxy from "http-proxy";
 import * as tar from "tar";
 
+import { createBookingAlert } from "./booking-alert.js";
 import { reclaimForeignGatewayLease } from "./gateway-lease.js";
 
 // Migrate deprecated CLAWDBOT_* env vars → OPENCLAW_* so existing Railway deployments
@@ -642,6 +643,14 @@ app.use(express.json({ limit: "1mb" }));
 
 // Minimal health endpoint for Railway.
 app.get("/setup/healthz", (_req, res) => res.json({ ok: true }));
+
+// Bigin intro-call bookings -> Discord. Registered before the dashboard auth and the gateway proxy:
+// Bigin cannot send our auth headers, so the route checks its own token.
+const bookingAlert = createBookingAlert({
+  configPath: path.join(process.cwd(), "packetor-config", "booking-alert.json"),
+  stateDir: STATE_DIR,
+});
+bookingAlert.register(app);
 
 async function probeGateway() {
   // Don't assume HTTP — the gateway primarily speaks WebSocket.
@@ -1725,6 +1734,7 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   console.log(`[wrapper] workspace dir: ${WORKSPACE_DIR}`);
   startMemoryWatchdog();
   startGatewaySupervisor();
+  bookingAlert.start();
 
   // Harden state dir for OpenClaw and avoid missing credentials dir on fresh volumes.
   try {
@@ -1830,6 +1840,7 @@ server.on("upgrade", async (req, socket, head) => {
 
 process.on("SIGTERM", () => {
   // Best-effort shutdown
+  bookingAlert.stop();
   gatewayExpectedStop = true;
   try {
     if (gatewayProc) gatewayProc.kill("SIGTERM");
