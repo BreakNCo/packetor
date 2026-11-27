@@ -20,3 +20,25 @@ or inside the managed block are overwritten on the next start: change this direc
 
 To replicate elsewhere: new Railway service + volume at `/data`, set `SETUP_PASSWORD`, `GITHUB_PAT_TOKEN`,
 `DISCORD_BOT_TOKEN`, run `/setup`, restart. Adding another block = drop a `.md` in `agents-blocks/`.
+
+## Booking alerts (`booking-alert.json`)
+
+New bookings on the Zoho Bigin **packets Intro Call** page are announced in Discord. This is plain code in
+the wrapper (`src/booking-alert.js`), not an agent: no model is involved and it keeps working while the
+gateway is down.
+
+```
+booking -> Bigin Notification API -> POST /bigin/booking-alert (wrapper) -> look up the event -> Discord (bot)
+```
+
+- On start, then every 6 hours, the wrapper (re)subscribes to `Events.create` for 23 hours (Bigin allows at
+  most a day) and announces any booking created since the last successful check whose notification was missed.
+- Only events made by a booking page (`$calendar_booking_event`) whose title starts with `titlePrefix` are
+  announced, once each. Cancellations and reschedules are not announced separately.
+- After 3 failed attempts it posts one warning in the same channel; it retries every 5 minutes. Logs: `[booking-alert]`.
+- Needs: `DISCORD_BOT_TOKEN`, `RAILWAY_PUBLIC_DOMAIN` (set by Railway), and the `zoho-bigin` server in the
+  mcporter config with the notification tools. No other secrets, DNS records or Bigin settings: the
+  verification token is generated into `$OPENCLAW_STATE_DIR/booking-alert.json` with the list of announced events.
+- `booking-alert.json`: Discord `channelId` and `roleId` to ping (`#book-demo-responses`, Demo Team), the title
+  prefix, a numeric Bigin channel id, and the Bigin org URL for links. Set `BOOKING_ALERT=0` to switch it off.
+- Run only one deployment with the same `biginChannelId`: a second one would take over the subscription.
